@@ -85,7 +85,7 @@ audioWss.on('connection', (browser) => {
     }
   });
 
-  scribe.on('error', (err) => console.error('Scribe socket error:', err.message));
+  scribe.on('error', (err) => { console.error('Scribe socket error:', err.message); browser.close(); });
   scribe.on('close', (code) => {
     console.log('Scribe session closed', code);
     browser.close(); // capture page treats ws close as stop
