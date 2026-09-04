@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Subtitles Overlay</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #caption {
+    position: fixed;
+    left: 50%; bottom: 8%;
+    transform: translateX(-50%);
+    max-width: 80vw;
+    text-align: center;
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #fff;
+    /* legible over any video: soft plate + hard outline */
+    background: rgba(0, 0, 0, 0.55);
+    padding: 0.15em 0.5em;
+    border-radius: 0.15em;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.9);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    /* clamp to 2 lines */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  #caption.visible { opacity: 1; }
+</style>
+<body>
+  <div id="caption"></div>
+<script>
+const el = document.getElementById('caption');
+const FADE_AFTER_MS = 6000;
+let fadeTimer;
+
+function show(text) {
+  el.textContent = text;
+  el.classList.add('visible');
+  clearTimeout(fadeTimer);
+  fadeTimer = setTimeout(() => el.classList.remove('visible'), FADE_AFTER_MS);
+}
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws/captions`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'caption') show(msg.text);
+  };
+  ws.onclose = () => setTimeout(connect, 1000); // auto-reconnect for OBS
+}
+connect();
+</script>
+</body>
+</html>
