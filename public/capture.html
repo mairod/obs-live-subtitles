@@ -83,6 +83,7 @@ function stop() {
   stream?.getTracks().forEach((t) => t.stop());
   audioCtx?.close();
   ws?.close();
+  ws = null;
   audioCtx = null;
   $('status').textContent = 'idle';
   $('toggle').textContent = 'Start';
