@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Subtitles — Mic Capture</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  #status { font-weight: 600; }
+  #partial { color: #888; min-height: 1.5em; }
+  #log { border-top: 1px solid #ddd; margin-top: 1rem; padding-top: 1rem; }
+  #log p { margin: 0.25rem 0; }
+  button { font-size: 1rem; padding: 0.5rem 1.5rem; }
+</style>
+<body>
+  <h1>Mic Capture (FR)</h1>
+  <p>
+    <select id="mics"></select>
+    <button id="toggle">Start</button>
+    <span id="status">idle</span>
+  </p>
+  <p id="partial"></p>
+  <div id="log"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws, audioCtx, stream;
+
+async function listMics() {
+  // Need permission once before labels are readable.
+  const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+  tmp.getTracks().forEach((t) => t.stop());
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  $('mics').innerHTML = devices
+    .filter((d) => d.kind === 'audioinput')
+    .map((d) => `<option value="${d.deviceId}">${d.label || 'Microphone'}</option>`)
+    .join('');
+}
+listMics().catch((e) => { $('status').textContent = 'mic permission denied: ' + e.message; });
+
+// Batch worklet frames (128 samples ≈ 8 ms) into ~256 ms sends.
+const BATCH_SAMPLES = 4096;
+
+async function start() {
+  ws = new WebSocket(`ws://${location.host}/ws/audio`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'partial') $('partial').textContent = msg.text;
+    if (msg.type === 'committed') {
+      $('partial').textContent = '';
+      const p = document.createElement('p');
+      p.textContent = msg.text;
+      $('log').prepend(p);
+    }
+  };
+  ws.onclose = () => { if (audioCtx) stop(); };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: { deviceId: $('mics').value ? { exact: $('mics').value } : undefined },
+  });
+  audioCtx = new AudioContext({ sampleRate: 16000 });
+  await audioCtx.audioWorklet.addModule('/worklet.js');
+  const source = audioCtx.createMediaStreamSource(stream);
+  const node = new AudioWorkletNode(audioCtx, 'pcm-writer');
+
+  let buffer = new Int16Array(0);
+  node.port.onmessage = (ev) => {
+    const chunk = ev.data;
+    const merged = new Int16Array(buffer.length + chunk.length);
+    merged.set(buffer); merged.set(chunk, buffer.length);
+    buffer = merged;
+    if (buffer.length >= BATCH_SAMPLES && ws.readyState === WebSocket.OPEN) {
+      ws.send(buffer);
+      buffer = new Int16Array(0);
+    }
+  };
+  source.connect(node);
+
+  $('status').textContent = `listening @ ${audioCtx.sampleRate} Hz`;
+  $('toggle').textContent = 'Stop';
+}
+
+function stop() {
+  stream?.getTracks().forEach((t) => t.stop());
+  audioCtx?.close();
+  ws?.close();
+  audioCtx = null;
+  $('status').textContent = 'idle';
+  $('toggle').textContent = 'Start';
+}
+
+$('toggle').onclick = () => (audioCtx ? stop() : start().catch((e) => {
+  $('status').textContent = 'error: ' + e.message;
+  stop();
+}));
+</script>
+</body>
+</html>
