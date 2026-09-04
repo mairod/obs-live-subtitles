@@ -29,7 +29,7 @@ const audioWss = new WebSocketServer({ noServer: true });
 const captionWss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
-  const wss = { '/ws/audio': audioWss, '/ws/captions': captionWss }[req.url];
+  const wss = { '/ws/audio': audioWss, '/ws/captions': captionWss }[new URL(req.url, 'http://x').pathname];
   if (!wss) return socket.destroy();
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
@@ -68,13 +68,17 @@ audioWss.on('connection', (browser) => {
     for (const buf of pending.splice(0)) sendChunk(buf);
   });
 
+  const toBrowser = (obj) => {
+    if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify(obj));
+  };
+
   scribe.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.message_type === 'partial_transcript') {
-      browser.send(JSON.stringify({ type: 'partial', text: msg.text }));
+      toBrowser({ type: 'partial', text: msg.text });
     } else if (msg.message_type === 'committed_transcript') {
-      browser.send(JSON.stringify({ type: 'committed', text: msg.text }));
+      toBrowser({ type: 'committed', text: msg.text });
       if (msg.text?.trim()) queue.push(msg.text.trim());
     } else if (msg.message_type !== 'session_started') {
       console.error('Scribe:', raw.toString());
@@ -82,7 +86,10 @@ audioWss.on('connection', (browser) => {
   });
 
   scribe.on('error', (err) => console.error('Scribe socket error:', err.message));
-  scribe.on('close', (code) => console.log('Scribe session closed', code));
+  scribe.on('close', (code) => {
+    console.log('Scribe session closed', code);
+    browser.close(); // capture page treats ws close as stop
+  });
 
   browser.on('message', (data, isBinary) => {
     if (!isBinary) return;
