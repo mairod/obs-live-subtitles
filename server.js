@@ -81,7 +81,8 @@ audioWss.on('connection', (browser) => {
       toBrowser({ type: 'committed', text: msg.text });
       if (msg.text?.trim()) queue.push(msg.text.trim());
     } else if (msg.message_type !== 'session_started') {
-      console.error('Scribe:', raw.toString());
+      const log = msg.error || String(msg.message_type).includes('error') ? console.error : console.log;
+      log('Scribe:', raw.toString());
     }
   });
 
@@ -94,7 +95,11 @@ audioWss.on('connection', (browser) => {
   browser.on('message', (data, isBinary) => {
     if (!isBinary) return;
     if (scribe.readyState === WebSocket.OPEN) sendChunk(data);
-    else if (scribe.readyState === WebSocket.CONNECTING) pending.push(data);
+    else if (scribe.readyState === WebSocket.CONNECTING) {
+      // ponytail: ~10s cap; drop oldest — realtime audio is worthless late
+      if (pending.length >= 40) pending.shift();
+      pending.push(data);
+    }
   });
   browser.on('close', () => scribe.close());
 });
