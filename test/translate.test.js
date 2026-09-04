@@ -24,3 +24,7 @@ test('openai preferred when both keys present and no TRANSLATOR', () => {
 test('throws when no key is configured', () => {
   assert.throws(() => pickProvider({}), /OPENAI_API_KEY or ANTHROPIC_API_KEY/);
 });
+
+test('invalid TRANSLATOR value throws', () => {
+  assert.throws(() => pickProvider({ TRANSLATOR: 'openia', OPENAI_API_KEY: 'x' }), /Invalid TRANSLATOR/);
+});
