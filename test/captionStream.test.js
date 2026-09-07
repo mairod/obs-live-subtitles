@@ -172,6 +172,97 @@ test('a failed provisional translation does not wedge the lane', async (t) => {
   assert.deepEqual(emits.at(-1), { text: 'two', final: false });
 });
 
+test('concurrent commits emit in spoken order', async (t) => {
+  t.mock.method(console, 'error', () => {}); // silence any errors
+  const emits = [];
+  const translateOrder = []; // tracks call order
+  let resolveFirst;
+  // First translate blocks until we release it; second resolves immediately.
+  // The chain must hold the second commit until the first finishes.
+  const translate = (fr) => {
+    translateOrder.push(fr);
+    if (fr === 'un') return new Promise((res) => { resolveFirst = res; });
+    return Promise.resolve('two');
+  };
+  const cs = makeCaptionStream({
+    translateStream: async () => {},
+    translate,
+    emit: (m) => emits.push(m),
+  });
+
+  // Fire both without awaiting — simulates fire-and-forget WS handler
+  const p1 = cs.onCommit('un');
+  const p2 = cs.onCommit('deux');
+
+  // At this point only 'un' translate has been called (chain serializes)
+  assert.deepEqual(translateOrder, ['un'], 'second translate not started yet');
+  assert.equal(emits.length, 0, 'nothing emitted while first is pending');
+
+  // Resolve the first; the chain then runs the second
+  resolveFirst('one');
+  await tick(); await tick(); // let the chain step forward
+  await Promise.all([p1, p2]);
+
+  // Emits must arrive in spoken order: one, then two
+  const finals = emits.filter((e) => e.final);
+  assert.equal(finals.length, 2);
+  assert.deepEqual(finals[0], { text: 'one', final: true });
+  assert.deepEqual(finals[1], { text: 'two', final: true });
+});
+
+test('empty commit resets the block without emitting', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  let translateCalls = 0;
+  const cs = makeCaptionStream({
+    translateStream: stream,
+    translate: async (fr) => { translateCalls++; return fr + '_en'; },
+    emit: (m) => emits.push(m),
+  });
+
+  // Establish a lastGood via a completed provisional
+  cs.onPartial('bonjour');
+  stream.calls[0].resolve('hello');
+  await tick();
+
+  // Empty commit: no final emit, but block resets (lastGood cleared)
+  await cs.onCommit('   ');
+  const finalsBefore = emits.filter((e) => e.final).length;
+  assert.equal(finalsBefore, 0, 'no final emit from empty commit');
+
+  // Now commit with the same French that was lastGood — if lastGood survived,
+  // translateCalls would stay 0. It should not: the empty commit cleared it.
+  await cs.onCommit('bonjour');
+  assert.equal(translateCalls, 1, 'lastGood was cleared; translate called afresh');
+  assert.deepEqual(emits.at(-1), { text: 'bonjour_en', final: true });
+});
+
+test('a hung provisional stream does not wedge the lane', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  const cs = makeCaptionStream({
+    translateStream: stream,
+    translate: async () => 'committed',
+    emit: (m) => emits.push(m),
+  });
+
+  // Start a partial whose stream never settles (ignores abort too)
+  cs.onPartial('un');
+  assert.equal(stream.calls.length, 1);
+
+  // Commit — this should give up lane ownership even though the stream hangs
+  await cs.onCommit('un deux');
+
+  // The hung stream is still running but lane ownership was released.
+  // A new partial must be able to start a second translateStream call.
+  cs.onPartial('trois');
+  await tick();
+
+  assert.equal(stream.calls.length, 2, 'second translateStream call started despite hung first');
+  stream.calls[1].onToken('three');
+  assert.deepEqual(emits.at(-1), { text: 'three', final: false });
+});
+
 test('a partial arriving during finalization is emitted after the final', async () => {
   const stream = fakeStream();
   const emits = [];
