@@ -41,11 +41,16 @@ function broadcastCaption(text) {
 
 const queue = makeCaptionQueue(makeTranslator(), broadcastCaption);
 
+// No language_code = Scribe auto-detects and follows mid-talk language
+// switches, so English speech transcribes as English instead of being
+// force-decoded into French gibberish. The translator then passes English
+// through unchanged. ponytail: set SCRIBE_LANGUAGE=fr to pin it if
+// detection drifts in a noisy room.
 const SCRIBE_PARAMS = new URLSearchParams({
   model_id: 'scribe_v2_realtime',
-  language_code: 'fr',
   audio_format: 'pcm_16000',
   commit_strategy: 'vad',
+  ...(process.env.SCRIBE_LANGUAGE && { language_code: process.env.SCRIBE_LANGUAGE }),
 });
 
 audioWss.on('connection', (browser) => {
