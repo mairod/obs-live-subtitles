@@ -2,8 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
-import { makeCaptionQueue } from './lib/queue.js';
-import { makeTranslator } from './lib/translate.js';
+import { makeCaptionStream } from './lib/captionStream.js';
+import { makeTranslator, makeStreamingTranslator } from './lib/translate.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC = path.join(import.meta.dirname, 'public');
@@ -34,12 +34,17 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
-function broadcastCaption(text) {
-  const data = JSON.stringify({ type: 'caption', text });
+function broadcastCaption({ text, final }) {
+  const data = JSON.stringify({ type: 'caption', text, final });
   for (const c of captionWss.clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
 
-const queue = makeCaptionQueue(makeTranslator(), broadcastCaption);
+// ponytail: one stream for the whole server — single presenter, single overlay.
+const captions = makeCaptionStream({
+  translateStream: makeStreamingTranslator(),
+  translate: makeTranslator(),
+  emit: broadcastCaption,
+});
 
 // No language_code = Scribe auto-detects and follows mid-talk language
 // switches, so English speech transcribes as English instead of being
@@ -50,6 +55,8 @@ const SCRIBE_PARAMS = new URLSearchParams({
   model_id: 'scribe_v2_realtime',
   audio_format: 'pcm_16000',
   commit_strategy: 'vad',
+  // Shorter silence → shorter segments → the provisional lane converges sooner.
+  vad_silence_threshold_secs: process.env.VAD_SILENCE_SECS || '0.4',
   ...(process.env.SCRIBE_LANGUAGE && { language_code: process.env.SCRIBE_LANGUAGE }),
 });
 
@@ -82,9 +89,10 @@ audioWss.on('connection', (browser) => {
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.message_type === 'partial_transcript') {
       toBrowser({ type: 'partial', text: msg.text });
+      captions.onPartial(msg.text);
     } else if (msg.message_type === 'committed_transcript') {
       toBrowser({ type: 'committed', text: msg.text });
-      if (msg.text?.trim()) queue.push(msg.text.trim());
+      captions.onCommit(msg.text);
     } else if (msg.message_type !== 'session_started') {
       const log = msg.error || String(msg.message_type).includes('error') ? console.error : console.log;
       log('Scribe:', raw.toString());

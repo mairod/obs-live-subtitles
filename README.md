@@ -27,6 +27,12 @@ LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
 - Keys never leave the server; pages talk to `localhost:3000` only.
 - Scribe runs with auto language detection so mid-talk FR↔EN switches
   transcribe correctly. Pin with `SCRIBE_LANGUAGE=fr` if detection drifts.
+- Captions appear ~350 ms after speech: partial transcripts are translated
+  with a streamed call and revise themselves in place, then lock when
+  ElevenLabs' VAD commits the segment. Already-visible words can change until
+  the segment locks — that is expected.
+- `VAD_SILENCE_SECS` (default `0.4`) controls phrase length. Raise it for
+  longer, calmer phrases; lower it for shorter, twitchier ones.
 - Translation backend defaults to the lowest-latency model on each side:
   `OPENAI_API_KEY` → `gpt-4.1-nano`, `ANTHROPIC_API_KEY` → `claude-haiku-4-5`.
   Override with `TRANSLATOR`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`.
