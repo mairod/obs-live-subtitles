@@ -23,7 +23,9 @@ LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
 ## Notes
 
 - Keys never leave the server; pages talk to `localhost:3000` only.
-- Translation backend: `OPENAI_API_KEY` → `gpt-4o-mini`,
-  `ANTHROPIC_API_KEY` → `claude-opus-4-8`. Override with `TRANSLATOR`,
-  `OPENAI_MODEL`, `ANTHROPIC_MODEL`.
+- Translation backend defaults to the lowest-latency model on each side:
+  `OPENAI_API_KEY` → `gpt-4.1-nano`, `ANTHROPIC_API_KEY` → `claude-haiku-4-5`.
+  Override with `TRANSLATOR`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`.
+- The server logs `translate NNNms` per segment, so you can A/B models by
+  swapping `OPENAI_MODEL`/`ANTHROPIC_MODEL` and watching the numbers.
 - `npm test` runs the unit tests (caption ordering, provider selection).
