@@ -282,6 +282,26 @@ test('a hung provisional stream does not wedge the lane', async () => {
   assert.deepEqual(emits.at(-1), { text: 'three', final: false });
 });
 
+test('a settling zombie stream does not steal the live stream\'s lane', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  const cs = makeCaptionStream({
+    translateStream: stream, translate: async () => 'LOCKED', emit: (m) => emits.push(m),
+  });
+
+  cs.onPartial('un');              // zombie-to-be, gen 0; ignores its abort signal
+  await cs.onCommit('un deux');    // gen -> 1, lane ownership released
+  cs.onPartial('trois');           // live stream starts at gen 1
+  await tick();
+  assert.equal(stream.calls.length, 2);
+
+  cs.onPartial('trois quatre');    // pendingFr set, so a stray pump() would start a stream
+  stream.calls[0].resolve('zombie done');
+  await tick();
+
+  assert.equal(stream.calls.length, 2, 'zombie must not clear the live stream\'s inFlight');
+});
+
 test('a partial arriving during finalization is emitted after the final', async () => {
   const stream = fakeStream();
   const emits = [];
@@ -305,4 +325,5 @@ test('a partial arriving during finalization is emitted after the final', async 
   assert.deepEqual(emits[0], { text: 'sentence one', final: true });
   assert.equal(stream.calls.length, 1, 'held partial runs after the final');
   assert.equal(stream.calls[0].fr, 'phrase deux');
+  assert.deepEqual(stream.calls[0].context, ['sentence one'], 'committed English passed as context to next provisional');
 });

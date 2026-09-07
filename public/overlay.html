@@ -35,7 +35,7 @@
 <script>
 const el = document.getElementById('caption');
 const FADE_LOCKED_MS = 6000;   // sentence is done — start the clock
-const FADE_STUCK_MS = 30000;   // safety net if a segment never commits
+const FADE_STUCK_MS = 8000;    // bounds a segment that never commits, or a commit that fails to produce text (provisional updates keep resetting this)
 let fadeTimer;
 
 // Every message carries the whole block, so rendering is a plain replace.

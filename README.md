@@ -19,8 +19,9 @@ LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
    You should see live transcript text while speaking.
 2. In OBS: **Sources → + → Browser**, URL `http://localhost:3000/overlay`,
    size 1920×1080. Background is transparent.
-3. Speak French. English subtitles appear ~1–2 s after each sentence.
-   English speech is transcribed as English and shown as-is.
+3. Speak French. English appears within roughly half a second and revises
+   itself as you keep talking, locking when each phrase ends. English
+   speech is transcribed as English and shown as-is.
 
 ## Notes
 
