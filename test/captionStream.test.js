@@ -174,18 +174,19 @@ test('a failed provisional translation does not wedge the lane', async (t) => {
 
 test('concurrent commits emit in spoken order', async (t) => {
   t.mock.method(console, 'error', () => {}); // silence any errors
+  const stream = fakeStream(); // trackable provisional lane
   const emits = [];
   const translateOrder = []; // tracks call order
-  let resolveFirst;
-  // First translate blocks until we release it; second resolves immediately.
-  // The chain must hold the second commit until the first finishes.
+  let resolveFirst, resolveSecond;
+  // Both translates block until we release them — lets us observe the
+  // intermediate state between the two commit bodies settling.
   const translate = (fr) => {
     translateOrder.push(fr);
     if (fr === 'un') return new Promise((res) => { resolveFirst = res; });
-    return Promise.resolve('two');
+    return new Promise((res) => { resolveSecond = res; });
   };
   const cs = makeCaptionStream({
-    translateStream: async () => {},
+    translateStream: stream,
     translate,
     emit: (m) => emits.push(m),
   });
@@ -198,10 +199,28 @@ test('concurrent commits emit in spoken order', async (t) => {
   assert.deepEqual(translateOrder, ['un'], 'second translate not started yet');
   assert.equal(emits.length, 0, 'nothing emitted while first is pending');
 
-  // Resolve the first; the chain then runs the second
+  // A partial arriving while BOTH commits are still queued must not start a
+  // stream — the lane must stay shut until the entire commit queue drains.
+  // If the queuedCommits===0 guard were unconditional, finalizing would drop
+  // to false after the first commit and the partial would fire mid-queue.
+  cs.onPartial('trois');
+  assert.equal(stream.calls.length, 0, 'provisional lane stays shut while commits are queued');
+
+  // Resolve the first; body1 settles and the chain schedules body2.
+  // body2 blocks at its own translate — so queuedCommits is still 1 when we check.
+  // The provisional lane must remain shut (finalizing still true).
   resolveFirst('one');
-  await tick(); await tick(); // let the chain step forward
+  await tick(); // microtasks: body1 finally runs, body2 starts, body2 blocks at translate
+  assert.equal(stream.calls.length, 0, 'provisional lane stays shut until the whole commit queue drains');
+  assert.deepEqual(translateOrder, ['un', 'deux'], 'second translate has started');
+
+  // Now release the second — the whole queue drains and the lane opens.
+  resolveSecond('two');
+  await tick(); // body2 finally: queuedCommits→0, finalizing=false, pump() fires partial
   await Promise.all([p1, p2]);
+
+  // Lane must reopen after queue drains (held partial should have fired)
+  assert.equal(stream.calls.length, 1, 'provisional lane reopens after all commits finish');
 
   // Emits must arrive in spoken order: one, then two
   const finals = emits.filter((e) => e.final);
