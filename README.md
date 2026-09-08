@@ -25,11 +25,12 @@ LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
 ## Notes
 
 - Keys never leave the server; pages talk to `localhost:3000` only.
-- Scribe is pinned to French. Auto-detection was tried and hurt accuracy —
-  0.4 s segments give it too little audio to identify a language from, and a
-  wrong guess corrupts the French before the translator sees it. The cost is
-  that English speech no longer passes through at the STT layer; set
-  `SCRIBE_LANGUAGE=` (empty) to trade accuracy back for that.
+- Scribe is pinned to French (`SCRIBE_LANGUAGE`, default `fr`). Auto-detection
+  was tried on real audio and hurt accuracy — 0.4 s segments give it too little
+  audio to identify a language from, and a wrong guess corrupts the French
+  before the translator sees it. Everything the mic hears is treated as French
+  and translated; speak English and you will get English run through a
+  French→English translator.
 - Captions appear ~500 ms after speech: partial transcripts are translated
   with a streamed call and revise themselves in place, then lock when
   ElevenLabs' VAD commits the segment. Already-visible words can change until
