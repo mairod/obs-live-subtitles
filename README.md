@@ -1,7 +1,7 @@
 # OBS Live Translated Subtitles (FR → EN)
 
-Speak French into a mic; English subtitles appear in OBS. Switch to English
-mid-talk and it passes your words straight through instead of translating.
+Speak French into a mic; English subtitles appear in OBS, revising themselves
+as you speak and locking when each phrase ends.
 Pipeline: Chrome mic capture → ElevenLabs Scribe v2 Realtime (STT) →
 LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
 
@@ -20,23 +20,28 @@ LLM translation (OpenAI or Anthropic) → transparent overlay for OBS.
 2. In OBS: **Sources → + → Browser**, URL `http://localhost:3000/overlay`,
    size 1920×1080. Background is transparent.
 3. Speak French. English appears within roughly half a second and revises
-   itself as you keep talking, locking when each phrase ends. English
-   speech is transcribed as English and shown as-is.
+   itself as you keep talking, locking when each phrase ends.
 
 ## Notes
 
 - Keys never leave the server; pages talk to `localhost:3000` only.
-- Scribe runs with auto language detection so mid-talk FR↔EN switches
-  transcribe correctly. Pin with `SCRIBE_LANGUAGE=fr` if detection drifts.
-- Captions appear ~350 ms after speech: partial transcripts are translated
+- Scribe is pinned to French. Auto-detection was tried and hurt accuracy —
+  0.4 s segments give it too little audio to identify a language from, and a
+  wrong guess corrupts the French before the translator sees it. The cost is
+  that English speech no longer passes through at the STT layer; set
+  `SCRIBE_LANGUAGE=` (empty) to trade accuracy back for that.
+- Captions appear ~500 ms after speech: partial transcripts are translated
   with a streamed call and revise themselves in place, then lock when
   ElevenLabs' VAD commits the segment. Already-visible words can change until
-  the segment locks — that is expected.
+  the segment locks — that is expected. The line never shrinks, so a revision
+  reads as words changing rather than the subtitle retyping itself.
 - `VAD_SILENCE_SECS` (default `0.4`) controls phrase length. Raise it for
   longer, calmer phrases; lower it for shorter, twitchier ones.
-- Translation backend defaults to the lowest-latency model on each side:
-  `OPENAI_API_KEY` → `gpt-4.1-nano`, `ANTHROPIC_API_KEY` → `claude-haiku-4-5`.
+- Translation backend defaults, chosen for accuracy over raw speed:
+  `OPENAI_API_KEY` → `gpt-4.1-mini`, `ANTHROPIC_API_KEY` → `claude-haiku-4-5`.
+  `gpt-4.1-nano` is faster but noticeably less accurate on French idiom.
   Override with `TRANSLATOR`, `OPENAI_MODEL`, `ANTHROPIC_MODEL`.
-- The server logs `translate NNNms` per segment, so you can A/B models by
-  swapping `OPENAI_MODEL`/`ANTHROPIC_MODEL` and watching the numbers.
+- The server logs `ttft NNNms` per provisional translation and `translate
+  NNNms` per locked segment, so you can A/B models by swapping
+  `OPENAI_MODEL`/`ANTHROPIC_MODEL` and watching the numbers.
 - `npm test` runs the unit tests (caption ordering, provider selection).

@@ -46,18 +46,31 @@ const captions = makeCaptionStream({
   emit: broadcastCaption,
 });
 
-// No language_code = Scribe auto-detects and follows mid-talk language
-// switches, so English speech transcribes as English instead of being
-// force-decoded into French gibberish. The translator then passes English
-// through unchanged. ponytail: set SCRIBE_LANGUAGE=fr to pin it if
-// detection drifts in a noisy room.
+// Pinned to French by default. Auto-detection was tried and hurt accuracy:
+// with 0.4 s VAD segments there is very little audio to identify a language
+// from, and a wrong guess mis-transcribes the French before the translator
+// ever sees it. Pinning costs the English-passthrough behaviour at the STT
+// layer — set SCRIBE_LANGUAGE= (empty) to get auto-detection back.
+//
+// ponytail: SCRIBE_SECONDARY_LANGUAGES is the untested middle ground —
+// primary French plus an allowed set, which would get passthrough back
+// without losing accuracy. The API accepts the parameter but its format and
+// semantics are undocumented, so it stays opt-in until a real run proves
+// it. Try `SCRIBE_SECONDARY_LANGUAGES=en`.
+const SCRIBE_LANGUAGE = process.env.SCRIBE_LANGUAGE ?? 'fr';
+
 const SCRIBE_PARAMS = new URLSearchParams({
   model_id: 'scribe_v2_realtime',
   audio_format: 'pcm_16000',
   commit_strategy: 'vad',
   // Shorter silence → shorter segments → the provisional lane converges sooner.
   vad_silence_threshold_secs: process.env.VAD_SILENCE_SECS || '0.4',
-  ...(process.env.SCRIBE_LANGUAGE && { language_code: process.env.SCRIBE_LANGUAGE }),
+  // Empty must OMIT the param, not send language_code= — that is what
+  // actually re-enables auto-detection.
+  ...(SCRIBE_LANGUAGE && { language_code: SCRIBE_LANGUAGE }),
+  ...(process.env.SCRIBE_SECONDARY_LANGUAGES && {
+    secondary_languages: process.env.SCRIBE_SECONDARY_LANGUAGES,
+  }),
 });
 
 audioWss.on('connection', (browser) => {

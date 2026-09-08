@@ -327,3 +327,92 @@ test('a partial arriving during finalization is emitted after the final', async 
   assert.equal(stream.calls[0].fr, 'phrase deux');
   assert.deepEqual(stream.calls[0].context, ['sentence one'], 'committed English passed as context to next provisional');
 });
+
+test('a fresh stream never shrinks the line back to one word', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  const cs = makeCaptionStream({
+    translateStream: stream,
+    translate: async () => 'unused',
+    emit: (m) => emits.push(m),
+  });
+
+  cs.onPartial('je ne');
+  stream.calls[0].onToken('I do');
+  stream.calls[0].onToken('I do not');
+  stream.calls[0].resolve('I do not');
+  await tick();
+
+  cs.onPartial("je ne l'ai pas");
+  assert.equal(stream.calls.length, 2);
+  // A new stream's accumulator restarts empty. Its short leading tokens must
+  // not reach the screen, or the subtitle collapses and retypes ~3x/second.
+  stream.calls[1].onToken('I');
+  stream.calls[1].onToken('I have');
+  stream.calls[1].onToken('I have not');
+
+  const texts = emits.map((e) => e.text);
+  assert.deepEqual(texts, ['I do', 'I do not', 'I do not', 'I have not']);
+  for (let i = 1; i < texts.length; i++) {
+    assert.ok(texts[i].length >= texts[i - 1].length, `line shrank: ${texts[i - 1]} -> ${texts[i]}`);
+  }
+});
+
+test('a shorter translation still lands, atomically, on stream completion', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  const cs = makeCaptionStream({
+    translateStream: stream, translate: async () => 'unused', emit: (m) => emits.push(m),
+  });
+
+  cs.onPartial('un');
+  stream.calls[0].onToken('I do not have it');
+  stream.calls[0].resolve('I do not have it');
+  await tick();
+
+  cs.onPartial('un deux');
+  stream.calls[1].onToken('I lack');      // suppressed — shorter than the line
+  stream.calls[1].resolve('I lack it');   // completion always emits
+  await tick();
+
+  assert.deepEqual(emits.at(-1), { text: 'I lack it', final: false });
+});
+
+test('commit matching the last partial apart from case and punctuation short-circuits', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  let translateCalls = 0;
+  const cs = makeCaptionStream({
+    translateStream: stream,
+    translate: async () => { translateCalls++; return 'RE-TRANSLATED'; },
+    emit: (m) => emits.push(m),
+  });
+
+  cs.onPartial("je ne l'ai pas encore vu");
+  stream.calls[0].resolve('I have not seen it yet');
+  await tick();
+
+  // What ASR actually returns on commit: capitalised and punctuated.
+  await cs.onCommit("Je ne l'ai pas encore vu.");
+
+  assert.equal(translateCalls, 0, 'no needless re-translation, so no end-of-phrase rewrite');
+  assert.deepEqual(emits.at(-1), { text: 'I have not seen it yet', final: true });
+});
+
+test('the next block renders from its first token after a commit', async () => {
+  const stream = fakeStream();
+  const emits = [];
+  const cs = makeCaptionStream({
+    translateStream: stream, translate: async () => 'LOCKED LONG SENTENCE', emit: (m) => emits.push(m),
+  });
+
+  cs.onPartial('bonjour');
+  stream.calls[0].resolve('hello');
+  await tick();
+  await cs.onCommit('tout autre chose');   // locks a long final
+  await tick();
+
+  cs.onPartial('oui');
+  stream.calls[1].onToken('yes');          // 3 chars vs a 20-char locked line
+  assert.deepEqual(emits.at(-1), { text: 'yes', final: false }, 'shrink guard must reset per block');
+});
