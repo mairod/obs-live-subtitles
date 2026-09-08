@@ -34,21 +34,27 @@
   <div id="caption"></div>
 <script>
 const el = document.getElementById('caption');
-const FADE_AFTER_MS = 6000;
+const FADE_LOCKED_MS = 6000;   // sentence is done — start the clock
+const FADE_STUCK_MS = 8000;    // bounds a segment that never commits, or a commit that fails to produce text (provisional updates keep resetting this)
 let fadeTimer;
 
-function show(text) {
+// Every message carries the whole block, so rendering is a plain replace.
+// A locked caption fades after 6s; a mid-sentence pause must not.
+function show(text, final) {
   el.textContent = text;
   el.classList.add('visible');
   clearTimeout(fadeTimer);
-  fadeTimer = setTimeout(() => el.classList.remove('visible'), FADE_AFTER_MS);
+  fadeTimer = setTimeout(
+    () => el.classList.remove('visible'),
+    final ? FADE_LOCKED_MS : FADE_STUCK_MS,
+  );
 }
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws/captions`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.type === 'caption') show(msg.text);
+    if (msg.type === 'caption') show(msg.text, msg.final);
   };
   ws.onclose = () => setTimeout(connect, 1000); // auto-reconnect for OBS
 }

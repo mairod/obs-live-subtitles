@@ -36,8 +36,9 @@ async function listMics() {
 }
 listMics().catch((e) => { $('status').textContent = 'mic permission denied: ' + e.message; });
 
-// Batch worklet frames (128 samples ≈ 8 ms) into ~256 ms sends.
-const BATCH_SAMPLES = 4096;
+// Batch worklet frames (128 samples ≈ 8 ms) into ~64 ms sends. 4x the frames
+// of a 256 ms batch, all over loopback — the latency is worth more than that.
+const BATCH_SAMPLES = 1024;
 
 async function start() {
   ws = new WebSocket(`ws://${location.host}/ws/audio`);
